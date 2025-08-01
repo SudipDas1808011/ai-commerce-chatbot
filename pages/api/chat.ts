@@ -27,11 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   await dbConnect();
   
-  console.log('Request Headers Cookie in /api/chat.ts:', req.headers.cookie);
-
-  const session = await getServerSession(req, res, authOptions); // Changed from getSession
-
-  console.log('Session in /api/chat.ts:', session);
+  const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user?.id) {
     console.warn('Authentication failed for /api/chat.ts: Session or user ID missing.');
@@ -50,127 +46,113 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     chatHistoryDoc = await ChatHistory.create({ userId, messages: [] });
   }
 
+  // Push user message to history immediately
   chatHistoryDoc.messages.push({ role: 'user', text: message });
 
+  let actionResponse = '';
+  let products: any[] = [];
+  let cart: any = null;
+  let orderId: string | null = null;
+  
+  const allProducts = await Product.find({});
+  const productNames = allProducts.map(p => p.name);
+  const lastBotMessage = chatHistoryDoc.messages.filter(m => m.role === 'bot').pop()?.text.toLowerCase() || '';
+
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
-    
-    // System instruction for the LLM
-    const initialPrompt = `You are an AI e-commerce chatbot for a shoe store. Your primary goal is to help users find and purchase shoes.
-    
-    When a user asks to "show products" or "browse shoes" (e.g., "Show me running shoes", "Do you have casual shoes?", "Browse sneakers"), you MUST respond by listing 3 relevant products from the available products below. For each product, include its name, price, and available sizes. Do NOT say you cannot show images.
-    
-    When asked to add an item to the cart, extract the product name and size. If size is missing, ask for it.
-    When asked to remove an item, extract the product name and size.
-    When asked to checkout, confirm the action.
-    
-    Respond in a helpful and concise manner. If you need more information, ask for it.
-    
-    Available products (for reference, do not list all unless asked to browse a category):
-    ${(await Product.find({})).map(p => `${p.name} (Category: ${p.category}, Sizes: ${p.sizes.join(',')})`).join('\n')}
-    `;
+    // --- Start: Intent Detection and Action Execution (refactored for reliability) ---
 
-    // Construct messages array for Gemini API
-    // Prepend the initialPrompt to the user's current message for every turn
-    const messageToSend = initialPrompt + "\n\nUser's Query: " + message;
+    // Intent: Checkout/Place Order
+    if (message.toLowerCase().includes('checkout') || message.toLowerCase().includes('place my order') || (message.toLowerCase() === 'yes' && lastBotMessage.includes('would you like to proceed with placing this order?'))) {
+      const userCart = await Cart.findOne({ userId });
+      if (userCart && userCart.items.length > 0) {
+        const newOrder = await Order.create({
+          userId: userId,
+          items: userCart.items,
+          totalAmount: userCart.items.reduce((total: number, item: any) => total + item.price * item.quantity, 0),
+          status: 'pending',
+        });
+        
+        // Use findOneAndDelete to ensure the cart is completely removed from the database
+        await Cart.findOneAndDelete({ userId: userId });
 
-    const historyForLLM = chatHistoryDoc.messages
-      .slice(-10)
-      .filter((msg: ChatMessage) => msg.role === 'user' || msg.role === 'bot')
-      .map((msg: ChatMessage) => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.text }],
-      }));
-
-    if (historyForLLM.length > 0 && historyForLLM[0].role !== 'user') {
-      historyForLLM.shift();
-    }
-
-    const chat = model.startChat({
-      history: historyForLLM,
-      generationConfig: {
-        maxOutputTokens: 200,
-      },
-    });
-
-    const result = await chat.sendMessage(messageToSend); // Send the modified message
-    const botResponseText = result.response.text();
-
-    // --- Intent Detection and Action Execution ---
-    let actionResponse = '';
-    let products: any[] = [];
-    let cart: any = null;
-    let orderId: string | null = null;
-
-    // Fetch all product names for dynamic matching
-    const allProducts = await Product.find({});
-    const productNames = allProducts.map(p => p.name);
-    
-    // Browse products intent - check botResponseText for general browsing intent
-    if (botResponseText.toLowerCase().includes('show me') || botResponseText.toLowerCase().includes('browse') || botResponseText.toLowerCase().includes('here are some shoes')) {
-      const categoryMatch = botResponseText.toLowerCase().match(/(running|casual|skate) shoes/);
-      const category = categoryMatch ? categoryMatch[1] : '';
-      
-      products = await Product.find(category ? { category } : {}).limit(3);
-      if (products.length > 0) {
-        actionResponse = 'Here are some shoes:\n' + products.map(p => `- ${p.name} ($${p.price.toFixed(2)}, Sizes: ${p.sizes.join(', ')})`).join('\n');
+        const orderItems = userCart.items.map(item => `${item.name} (Size: ${item.size})`).join(', ');
+        actionResponse = `Your order for ${orderItems} has been placed successfully! Your cart is now empty. Your order ID is #${newOrder._id.toString().slice(-6)}.`;
+        orderId = newOrder._id.toString();
+        cart = { userId: userId.toString(), items: [] }; // The cart object is now correctly empty
       } else {
-        actionResponse = 'I could not find any products matching your request.';
+        actionResponse = `Your cart is empty. Please add some items before you can checkout.`;
       }
+    } 
+    // Intent: Add to cart with confirmation
+    else if (message.toLowerCase() === 'yes' && lastBotMessage.includes('already in your cart')) {
+        const productMatch = lastBotMessage.match(/"([^"]+)"/);
+        const sizeMatch = lastBotMessage.match(/size (\d+)/);
+        if (productMatch && sizeMatch) {
+            const productName = productMatch[1];
+            const size = parseInt(sizeMatch[1]);
+            const product = await Product.findOne({ name: { $regex: new RegExp(productName, 'i') } });
+            if (product) {
+                const filter = { userId: userId, 'items.productId': product._id, 'items.size': size };
+                const update = { $inc: { 'items.$.quantity': 1 }, $set: { updatedAt: new Date() } };
+                const options = { new: true };
+                const updatedCart = await Cart.findOneAndUpdate(filter, update, options);
+                cart = updatedCart;
+                actionResponse = `Added another ${productName} (Size: ${size}) to your cart.`;
+            } else {
+                actionResponse = `Sorry, I couldn't find that product.`;
+            }
+        } else {
+            actionResponse = `Sorry, I'm not sure which item you're referring to.`;
+        }
     }
-    // Add to cart intent - **CHECK USER'S ORIGINAL MESSAGE FOR INTENT**
+    // Intent: Decline to add more
+    else if (message.toLowerCase() === 'no' && lastBotMessage.includes('already in your cart')) {
+        actionResponse = 'Okay, no problem! Let me know if there is anything else I can help you with.';
+    }
+    // Intent: Add to cart
     else if (message.toLowerCase().includes('add') && message.toLowerCase().includes('cart')) {
         let extractedProductName: string | null = null;
-        // Sort product names by length in descending order to prioritize more specific names
         const sortedProductNames = [...productNames].sort((a, b) => b.length - a.length);
 
         for (const pName of sortedProductNames) {
             if (message.toLowerCase().includes(pName.toLowerCase())) {
                 extractedProductName = pName;
-                break; // Found the most specific product name, stop searching
+                break;
             }
         }
-
         const sizeMatch = message.match(/\b(size|sizes)?\s*(\d+)\b/i);
         let extractedSize: number | null = sizeMatch ? parseInt(sizeMatch[2]) : null;
-        
-        console.log('--- Add to Cart Debug ---');
-        console.log('User Message:', message);
-        console.log('Extracted Product Name:', extractedProductName);
-        console.log('Extracted Size:', extractedSize);
-        console.log('-------------------------');
 
         if (extractedProductName && extractedSize) {
             const product = await Product.findOne({ name: { $regex: new RegExp(extractedProductName, 'i') } });
-            console.log('Found Product in DB:', product ? product.name : 'None');
             if (product) {
-                if (!product.sizes.includes(extractedSize)) {
-                    actionResponse = `Size ${extractedSize} is not available for ${product.name}. Available sizes are: ${product.sizes.join(', ')}.`;
-                } else {
-                    let userCart = await Cart.findOne({ userId });
-                    if (!userCart) {
-                        userCart = await Cart.create({ userId, items: [] });
-                    }
-                    const existingItemIndex = userCart.items.findIndex(
-                        (item: any) => item.productId.toString() === product._id.toString() && item.size === extractedSize
-                    );
+                const userCart = await Cart.findOne({ userId });
+                const existingItem = userCart?.items.find((item: any) => 
+                    item.productId.toString() === product._id.toString() && item.size === extractedSize
+                );
 
-                    if (existingItemIndex > -1) {
-                        userCart.items[existingItemIndex].quantity += 1;
+                if (existingItem) {
+                    actionResponse = `It seems "${product.name}" (Size: ${extractedSize}) is already in your cart. Do you want to add another one? Reply with 'yes' or 'no'.`;
+                } else {
+                    if (!product.sizes.includes(extractedSize)) {
+                        actionResponse = `Size ${extractedSize} is not available for ${product.name}. Available sizes are: ${product.sizes.join(', ')}.`;
                     } else {
-                        userCart.items.push({
+                        const newItem = {
                             productId: product._id,
                             name: product.name,
                             image: product.image,
                             price: product.price,
                             size: extractedSize,
                             quantity: 1,
-                        } as any);
+                        };
+                        const updatedCart = await Cart.findOneAndUpdate(
+                            { userId: userId }, 
+                            { $push: { items: newItem }, $set: { updatedAt: new Date() } },
+                            { new: true, upsert: true }
+                        );
+                        cart = updatedCart;
+                        actionResponse = `Added ${product.name} (Size: ${extractedSize}) to your cart.`;
                     }
-                    userCart.updatedAt = new Date();
-                    await userCart.save();
-                    actionResponse = `Added ${product.name} (Size: ${extractedSize}) to your cart.`;
-                    cart = userCart;
                 }
             } else {
                 actionResponse = `Sorry, I couldn't find a product named "${extractedProductName}".`;
@@ -181,31 +163,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             actionResponse = `Please specify which product and size you'd like to add to your cart.`;
         }
     }
-    // Remove from cart intent - **CHECK USER'S ORIGINAL MESSAGE FOR INTENT**
+    // Intent: Remove from cart
     else if (message.toLowerCase().includes('remove') && message.toLowerCase().includes('cart')) {
         let extractedProductName: string | null = null;
-        // Sort product names by length in descending order to prioritize more specific names
         const sortedProductNames = [...productNames].sort((a, b) => b.length - a.length);
 
         for (const pName of sortedProductNames) {
             if (message.toLowerCase().includes(pName.toLowerCase())) {
                 extractedProductName = pName;
-                break; // Found the most specific product name, stop searching
+                break;
             }
         }
-
         const sizeMatch = message.match(/\b(size|sizes)?\s*(\d+)\b/i);
         let extractedSize: number | null = sizeMatch ? parseInt(sizeMatch[2]) : null;
 
-        console.log('--- Remove from Cart Debug ---');
-        console.log('User Message:', message);
-        console.log('Extracted Product Name:', extractedProductName);
-        console.log('Extracted Size:', extractedSize);
-        console.log('----------------------------');
-
         if (extractedProductName && extractedSize) {
             const product = await Product.findOne({ name: { $regex: new RegExp(extractedProductName, 'i') } });
-            console.log('Found Product in DB:', product ? product.name : 'None');
             if (product) {
                 let userCart = await Cart.findOne({ userId });
                 if (userCart) {
@@ -231,31 +204,66 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             actionResponse = `Please specify which product and size you'd like to remove from your cart.`;
         }
     }
-    // Checkout intent - **MODIFIED: Now creates an order and clears the cart**
-    else if (message.toLowerCase().includes('checkout') || message.toLowerCase().includes('place my order')) {
+    // Intent: View cart
+    else if (message.toLowerCase().includes('what is in my cart') || message.toLowerCase().includes('view cart') || message.toLowerCase().includes('show my cart')) {
       const userCart = await Cart.findOne({ userId });
       if (userCart && userCart.items.length > 0) {
-        // Create the order
-        const newOrder = await Order.create({
-          userId: userId,
-          items: userCart.items,
-          totalAmount: userCart.items.reduce((total: number, item: any) => total + item.price * item.quantity, 0),
-          status: 'pending',
-        });
-
-        // Clear the user's cart
-        userCart.items = [];
-        await userCart.save();
-        
-        actionResponse = `Your order #${newOrder._id.toString().slice(-6)} has been placed successfully! Thank you for shopping with us.`;
-        orderId = newOrder._id.toString();
+        const cartItems = userCart.items.map((item: any) => 
+          `- ${item.name} (Size: ${item.size}) - Quantity: ${item.quantity}`
+        ).join('\n');
+        actionResponse = `Your cart contains:\n${cartItems}`;
         cart = userCart;
       } else {
-        actionResponse = `Your cart is empty. Please add some items before you can checkout.`;
+        actionResponse = `Your cart is currently empty.`;
+      }
+    } else {
+      // If no specific intent is found, use the generative AI model
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+      const initialPrompt = `You are an AI e-commerce chatbot for a shoe store. Your primary goal is to help users find and purchase shoes.
+      
+      When a user asks to "show products" or "browse shoes" (e.g., "Show me running shoes", "Do you have casual shoes?", "Browse sneakers"), you MUST respond by listing 3 relevant products from the available products below. For each product, include its name, price, and available sizes. Do NOT say you cannot show images.
+      
+      When asked to add an item to the cart, extract the product name and size. If size is missing, ask for it.
+      When asked to remove an item, extract the product name and size.
+      When asked to see the cart, show the items in the user's cart.
+      When asked to checkout, you should first ask for a confirmation: "Would you like to proceed with placing this order?".
+      
+      Respond in a helpful and concise manner. If you need more information, ask for it.
+      
+      Available products (for reference, do not list all unless asked to browse a category):
+      ${(await Product.find({})).map(p => `${p.name} (Category: ${p.category}, Sizes: ${p.sizes.join(',')})`).join('\n')}
+      `;
+      const messageToSend = initialPrompt + "\n\nUser's Query: " + message;
+      const historyForLLM = chatHistoryDoc.messages
+        .slice(-10)
+        .filter((msg: ChatMessage) => msg.role === 'user' || msg.role === 'bot')
+        .map((msg: ChatMessage) => ({
+          role: msg.role === 'user' ? 'user' : 'model',
+          parts: [{ text: msg.text }],
+        }));
+      if (historyForLLM.length > 0 && historyForLLM[0].role !== 'user') {
+        historyForLLM.shift();
+      }
+      const chat = model.startChat({
+        history: historyForLLM,
+        generationConfig: { maxOutputTokens: 200 },
+      });
+      const result = await chat.sendMessage(messageToSend);
+      actionResponse = result.response.text();
+
+      // Secondary check for order confirmation here, to ensure LLM's
+      // response is followed by a database action.
+      if (actionResponse.toLowerCase().includes('would you like to proceed with placing this order?')) {
+        const userCart = await Cart.findOne({ userId });
+        if (userCart && userCart.items.length > 0) {
+            const cartItems = userCart.items.map(item => `${item.name} (Size: ${item.size})`).join(', ');
+            actionResponse = `Your cart contains: ${cartItems}. Would you like to proceed with placing this order?`;
+        }
       }
     }
+    // --- End: Intent Detection and Action Execution (refactored for reliability) ---
 
-    const finalBotResponse = actionResponse || botResponseText;
+    const finalBotResponse = actionResponse;
 
     // Add bot response to history
     chatHistoryDoc.messages.push({ role: 'bot', text: finalBotResponse });
@@ -266,7 +274,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       response: finalBotResponse,
       products,
       cart,
-      orderId, // This will be null if checkout intent was handled by chatbot
+      orderId,
     });
 
   } catch (error) {
