@@ -61,8 +61,54 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     // --- Start: Intent Detection and Action Execution (refactored for reliability) ---
 
+    function extractProduct() {
+      let extractedProductName: string | null = null;
+        const sortedProductNames = [...productNames].sort((a, b) => b.length - a.length);
+       for (const pName of sortedProductNames) {
+            if (message.toLowerCase().includes(pName.toLowerCase())) {
+                extractedProductName = pName;
+                break;
+            }
+        }
+        const sizeMatch = message.match(/\b(size|sizes)?\s*(\d+)\b/i);
+        let extractedSize: number | null = sizeMatch ? parseInt(sizeMatch[2]) : null;
+
+        return [extractedProductName, extractedSize];
+    }
+
+   async function handleBotResponse(response: string) {
+
+    console.log(`[Bot Response] ${response}`);
+
+    if(lastBotMessage.includes('added') && lastBotMessage.includes('cart')){
+      let [extractedProductName, extractedSize] = extractProduct();
+
+      const product = await Product.findOne({ 
+        name: { $regex: extractedProductName ?? '', $options: 'i' } 
+      });
+
+      const newItem = {
+        productId: product._id,
+        name: product.name,
+        image: product.image,
+        price: product.price,
+        size: extractedSize,
+        quantity: 1,
+      };
+
+      const updatedCart = await Cart.findOneAndUpdate(
+        { userId: userId }, 
+        { $push: { items: newItem }, $set: { updatedAt: new Date() } },
+        { new: true, upsert: true }
+      );
+
+      cart = updatedCart;
+    }
+}
+
+
     // Intent: Checkout/Place Order
-    if (message.toLowerCase().includes('checkout') || message.toLowerCase().includes('place my order') || (message.toLowerCase() === 'yes' && lastBotMessage.includes('would you like to proceed with placing this order?'))) {
+    if (message.toLowerCase().includes('checkout') || message.toLowerCase().includes('place my order') ||  (message.toLowerCase() === 'yes' && lastBotMessage.includes('would you like to proceed with placing this order?')) ) {
       const userCart = await Cart.findOne({ userId });
       if (userCart && userCart.items.length > 0) {
         const newOrder = await Order.create({
@@ -110,21 +156,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         actionResponse = 'Okay, no problem! Let me know if there is anything else I can help you with.';
     }
     // Intent: Add to cart
-    else if (message.toLowerCase().includes('add') && message.toLowerCase().includes('cart')) {
-        let extractedProductName: string | null = null;
-        const sortedProductNames = [...productNames].sort((a, b) => b.length - a.length);
+    else if ((message.toLowerCase().includes('add') && message.toLowerCase().includes('cart'))) {
+        
 
-        for (const pName of sortedProductNames) {
-            if (message.toLowerCase().includes(pName.toLowerCase())) {
-                extractedProductName = pName;
-                break;
-            }
-        }
-        const sizeMatch = message.match(/\b(size|sizes)?\s*(\d+)\b/i);
-        let extractedSize: number | null = sizeMatch ? parseInt(sizeMatch[2]) : null;
+       let [extractedProductName, extractedSize] = extractProduct();
 
         if (extractedProductName && extractedSize) {
-            const product = await Product.findOne({ name: { $regex: new RegExp(extractedProductName, 'i') } });
+            const product = await Product.findOne({ 
+              name: { $regex: extractedProductName ?? '', $options: 'i' } 
+            });
+
             if (product) {
                 const userCart = await Cart.findOne({ userId });
                 const existingItem = userCart?.items.find((item: any) => 
@@ -264,6 +305,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // --- End: Intent Detection and Action Execution (refactored for reliability) ---
 
     const finalBotResponse = actionResponse;
+
+    handleBotResponse(finalBotResponse);
 
     // Add bot response to history
     chatHistoryDoc.messages.push({ role: 'bot', text: finalBotResponse });
