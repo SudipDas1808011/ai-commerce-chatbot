@@ -56,8 +56,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   
   const allProducts = await Product.find({});
   const productNames = allProducts.map(p => p.name);
-  const lastBotMessage = chatHistoryDoc.messages.filter(m => m.role === 'bot').pop()?.text.toLowerCase() || '';
-
+  const lastBotMessage = chatHistoryDoc.messages.filter((m:ChatMessage)=> m.role === 'bot').pop()?.text.toLowerCase() || '';
+ 
   try {
     // --- Start: Intent Detection and Action Execution (refactored for reliability) ---
 
@@ -75,7 +75,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // Use findOneAndDelete to ensure the cart is completely removed from the database
         await Cart.findOneAndDelete({ userId: userId });
 
-        const orderItems = userCart.items.map(item => `${item.name} (Size: ${item.size})`).join(', ');
+        const orderItems = userCart.items.map((item: { name: any; size: any; }) => `${item.name} (Size: ${item.size})`).join(', ');
         actionResponse = `Your order for ${orderItems} has been placed successfully! Your cart is now empty. Your order ID is #${newOrder._id.toString().slice(-6)}.`;
         orderId = newOrder._id.toString();
         cart = { userId: userId.toString(), items: [] }; // The cart object is now correctly empty
@@ -256,7 +256,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (actionResponse.toLowerCase().includes('would you like to proceed with placing this order?')) {
         const userCart = await Cart.findOne({ userId });
         if (userCart && userCart.items.length > 0) {
-            const cartItems = userCart.items.map(item => `${item.name} (Size: ${item.size})`).join(', ');
+            const cartItems = userCart.items.map((item: { name: any; size: any; }) => `${item.name} (Size: ${item.size})`).join(', ');
             actionResponse = `Your cart contains: ${cartItems}. Would you like to proceed with placing this order?`;
         }
       }
