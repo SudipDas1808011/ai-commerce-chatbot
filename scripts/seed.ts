@@ -39,7 +39,7 @@ const products = [
     description: 'The original basketball shoe, now an iconic streetwear staple.',
   },
   {
-    name: 'New Balance',
+    name: 'New Balance 990v5',
     image: 'https://placehold.co/300x300/457b9d/000000?text=New+Balance+990v5',
     price: 175.00,
     sizes: [8, 9, 10, 11, 12, 13],
@@ -55,7 +55,7 @@ const products = [
     description: 'The classic skate shoe with iconic side stripe, built for durability and style.',
   },
   { // Added to match user's query
-    name: 'Nike Air Zoom Pegasus',
+    name: 'Nike Air Zoom Pegasus 40',
     image: 'https://placehold.co/300x300/a8dadc/000000?text=Nike+Air+Zoom+Pegasus+40',
     price: 130.00,
     sizes: [7, 8, 9, 10, 11, 12, 13],

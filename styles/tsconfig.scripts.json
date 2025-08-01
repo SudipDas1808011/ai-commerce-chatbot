@@ -1,0 +1,21 @@
+// tsconfig.scripts.json
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS", // Override for scripts
+    "moduleResolution": "node", // Use node resolution for CommonJS
+    "noEmit": true // Ensure ts-node doesn't emit files
+  },
+  "include": [
+    "scripts/**/*.ts", // Include your scripts folder
+    "lib/**/*.ts",
+    "models/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".next",
+    "**/*.test.ts",
+    "pages/**/*.ts", // Exclude Next.js pages/api as they are handled by Next.js's compiler
+    "components/**/*.ts"
+  ]
+}
