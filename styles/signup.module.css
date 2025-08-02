@@ -1,0 +1,76 @@
+/* styles/signup.module.css */
+
+.container {
+  min-height: 100vh;
+  background-image: url('/images/bg-01.jpg');
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.signupBox {
+  background-color: white;
+  padding: 2rem;
+  border-radius: 8px;
+  max-width: 400px;
+  width: 100%;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: bold;
+  text-align: center;
+  color: #333;
+  margin-bottom: 1.5rem;
+}
+
+.inputField {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  transition: border-color 0.3s ease;
+}
+
+.inputField:focus {
+  border-color: #22c55e; /* Tailwind green-500 */
+  outline: none;
+}
+
+.button {
+  width: 100%;
+  padding: 0.75rem;
+  background-color: #22c55e; /* Tailwind green-500 */
+  color: white;
+  font-weight: 500;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.button:hover {
+  background-color: #16a34a; /* Tailwind green-700 */
+}
+
+.link {
+  text-align: center;
+  margin-top: 1.5rem;
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.error {
+  color: #ef4444;
+  text-align: center;
+  margin-bottom: 1rem;
+}
