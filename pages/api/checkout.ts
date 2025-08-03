@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth/next'; // Changed from getSession
 import { authOptions } from '../api/auth/[...nextauth]'; // Import authOptions
 import dbConnect from '../../lib/mongodb';
-import Cart from '../../models/Cart';
+import Cart, {CartItem} from '../../models/Cart';
 import Order from '../../models/Order';
 import mongoose from 'mongoose';
 
@@ -32,11 +32,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ success: false, message: 'Your cart is empty.' });
       }
 
-      const totalAmount = cart.items.reduce((sum: number, item: any) => sum + item.price * item.quantity, 0);
+      const totalAmount = cart.items.reduce((sum: number, item:CartItem) => sum + item.price * item.quantity, 0);
 
       const order = await Order.create({
         userId,
-        items: cart.items.map((item: any) => ({
+        items: cart.items.map((item: CartItem) => ({
           productId: item.productId,
           name: item.name,
           image: item.image,

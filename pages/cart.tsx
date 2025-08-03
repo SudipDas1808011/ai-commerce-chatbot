@@ -5,6 +5,8 @@ import Head from 'next/head';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { useCallback } from 'react';
+
 
 interface CartItem {
   _id: string;
@@ -34,33 +36,37 @@ export default function CartPage() {
   const [error, setError] = useState<string | null>(null);
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
 
-  const fetchCart = async () => {
-    if (!session) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/cart');
-      const data = await res.json();
-      if (data.success) {
-        setCart(data.data);
-      } else {
-        setError(data.message);
-      }
-    } catch (err) {
-      setError('Failed to fetch cart.');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const fetchCart = useCallback(async () => {
+  if (!session) return;
+  setLoading(true);
+  setError(null);
 
-  useEffect(() => {
-    if (status === 'authenticated') {
-      fetchCart();
-    } else if (status === 'unauthenticated') {
-      router.push('/auth/signin');
+  try {
+    const res = await fetch('/api/cart');
+    const data = await res.json();
+
+    if (data.success) {
+      setCart(data.data);
+    } else {
+      setError(data.message);
     }
-  }, [session, status]);
+  } catch (err) {
+    setError('Failed to fetch cart.');
+    console.error(err);
+  } finally {
+    setLoading(false);
+  }
+}, [session]);
+
+
+ useEffect(() => {
+  if (status === 'authenticated') {
+    fetchCart();
+  } else if (status === 'unauthenticated') {
+    router.push('/auth/signin');
+  }
+}, [session, status, fetchCart, router]);
+
 
   const updateCartItem = async (productId: string, size: number, action: 'increment' | 'decrement' | 'remove') => {
     try {

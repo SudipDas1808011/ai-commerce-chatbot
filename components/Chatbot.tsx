@@ -22,7 +22,7 @@ interface ChatResponse {
 }
 
 export default function Chatbot() {
-  const { data: session, status } = useSession();
+  const {status} = useSession();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);

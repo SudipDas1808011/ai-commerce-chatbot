@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSession } from 'next-auth/react';
 import dbConnect from '../../lib/mongodb';
-import Cart from '../../models/Cart';
+import Cart, {CartItem} from '../../models/Cart';
 import Product from '../../models/Product';
 import mongoose from 'mongoose';
 
@@ -49,7 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
 
         const existingItemIndex = cart.items.findIndex(
-          (item: any) => item.productId.toString() === productId && item.size === parseInt(size)
+          (item: CartItem) => item.productId.toString() === productId && item.size === parseInt(size)
         );
 
         if (existingItemIndex > -1) {
@@ -62,7 +62,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             price: product.price,
             size: parseInt(size),
             quantity,
-          } as any);
+          } as CartItem);
         }
 
         cart.updatedAt = new Date();
@@ -81,13 +81,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return res.status(400).json({ success: false, message: 'Product ID, size, and action are required.' });
         }
 
-        let cart = await Cart.findOne({ userId });
+        const cart = await Cart.findOne({ userId });
         if (!cart) {
           return res.status(404).json({ success: false, message: 'Cart not found.' });
         }
 
         const itemIndex = cart.items.findIndex(
-          (item: any) => item.productId.toString() === productId && item.size === parseInt(size)
+          (item: CartItem) => item.productId.toString() === productId && item.size === parseInt(size)
         );
 
         if (itemIndex === -1) {

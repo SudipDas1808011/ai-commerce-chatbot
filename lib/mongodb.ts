@@ -12,7 +12,7 @@ if (!MONGODB_URI) {
   );
 }
 
-let cached = global as typeof global & { mongoose: { conn: typeof mongoose | null; promise: Promise<typeof mongoose> | null } };
+const cached = global as typeof global & { mongoose: { conn: typeof mongoose | null; promise: Promise<typeof mongoose> | null } };
 
 if (!cached.mongoose) {
   cached.mongoose = { conn: null, promise: null };

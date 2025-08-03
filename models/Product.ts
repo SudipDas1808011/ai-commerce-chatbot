@@ -27,5 +27,14 @@ const ProductSchema = new mongoose.Schema({
     default: 'A comfortable and stylish shoe.',
   },
 });
+// types/Product.ts
+export interface IProduct {
+  name: string;
+  image?: string;
+  price: number;
+  sizes: number[];
+  category: string;
+  description?: string;
+}
 
 export default mongoose.models.Product || mongoose.model('Product', ProductSchema);
