@@ -224,7 +224,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         } else {
             console.error(`Product '${extractedProductName}' not found after LLM response.`);
         }
-    } else if (lowerCaseResponse.includes('order has been placed') || (lowerCaseResponse.includes('your cart is now empty') && message.toLowerCase() === 'yes')) {
+    } else if (lowerCaseResponse.includes('order') && lowerCaseResponse.includes('has been placed') || (lowerCaseResponse.includes('your cart is now empty') && message.toLowerCase() === 'yes')) {
         const currentCart = await Cart.findOne({ userId }).lean() as CartDocument | null;
         if (currentCart && currentCart.items.length > 0) {
             const newOrder = await Order.create({
