@@ -205,7 +205,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const lowerCaseResponse = actionResponse.toLowerCase();
     const [extractedProductName, extractedSize] = extractProductFromMessage(actionResponse);
     let newResponse = actionResponse;
-
+    
     if (lowerCaseResponse.includes('added') && extractedProductName && extractedSize) {
         const product = allProducts.find(p => p.name.toLowerCase().includes(extractedProductName.toLowerCase()));
         if (product) {
@@ -224,8 +224,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         } else {
             console.error(`Product '${extractedProductName}' not found after LLM response.`);
         }
-    } else if (lowerCaseResponse.includes('order') && lowerCaseResponse.includes('has been placed') || (lowerCaseResponse.includes('your cart is now empty') && message.toLowerCase() === 'yes') || message.toLowerCase() === 'checkout' || message.toLowerCase() === 'place' && message.toLowerCase() === 'order' || message.toLowerCase() === 'confirm order'
-        || message.toLowerCase() === 'confirm' && message.toLowerCase() === 'order' ) {
+    } else if (message.toLowerCase() === 'yes' && chatHistoryDoc.messages.length > 0 && chatHistoryDoc.messages[chatHistoryDoc.messages.length - 2].text.includes('Would you like to proceed with placing this order?')) {
         const currentCart = await Cart.findOne({ userId }).lean() as CartDocument | null;
         if (currentCart && currentCart.items.length > 0) {
             const newOrder = await Order.create({
@@ -238,7 +237,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             const newOrderIdString = newOrder._id.toString();
             orderId = newOrderIdString; 
             cart = null;
-            newResponse = `Thanks for ordering! Your cart has been cleared and your order ID is #${newOrderIdString.slice(-6)}.`;
+            newResponse = `Thank you for ordering! Your cart has been cleared and your order ID is #${newOrderIdString.slice(-6)}.`;
         } else {
             newResponse = `Your cart is currently empty.`;
         }
