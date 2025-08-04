@@ -224,7 +224,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         } else {
             console.error(`Product '${extractedProductName}' not found after LLM response.`);
         }
-    } else if (lowerCaseResponse.includes('order') && lowerCaseResponse.includes('has been placed') || (lowerCaseResponse.includes('your cart is now empty') && message.toLowerCase() === 'yes')) {
+    } else if (lowerCaseResponse.includes('order') && lowerCaseResponse.includes('has been placed') || (lowerCaseResponse.includes('your cart is now empty') && message.toLowerCase() === 'yes') || message.toLowerCase() === 'checkout' || message.toLowerCase() === 'place' && message.toLowerCase() === 'order' || message.toLowerCase() === 'confirm order'
+        || message.toLowerCase() === 'confirm' && message.toLowerCase() === 'order' ) {
         const currentCart = await Cart.findOne({ userId }).lean() as CartDocument | null;
         if (currentCart && currentCart.items.length > 0) {
             const newOrder = await Order.create({
@@ -241,7 +242,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         } else {
             newResponse = `Your cart is currently empty.`;
         }
-    } else if (lowerCaseResponse.includes('in your cart')) {
+    } else if ((message.toLowerCase() === 'show cart') || lowerCaseResponse.includes("here's what's in your cart:")) {
         if (cart && cart.items.length > 0) {
             const totalCost = cart.items.reduce((total: number, item) => total + item.price * item.quantity, 0);
             const cartItems = cart.items.map((item: CartItem) =>
@@ -249,7 +250,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             ).join('\n');
             newResponse = `Here's what's in your cart:\n${cartItems}\nTotal: $${totalCost.toFixed(2)}`;
         } else {
-            newResponse = `Your cart is currently empty.`;
+            newResponse = `Your cart is currently empty cart is null.`;
         }
     }
     
