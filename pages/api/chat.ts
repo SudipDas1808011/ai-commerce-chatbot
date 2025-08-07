@@ -249,7 +249,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             ).join('\n');
             newResponse = `Here's what's in your cart:\n${cartItems}\nTotal: $${totalCost.toFixed(2)}`;
         } else {
-            newResponse = `Your cart is currently empty cart is null.`;
+            newResponse = `Your cart is currently empty.`;
         }
     }
     

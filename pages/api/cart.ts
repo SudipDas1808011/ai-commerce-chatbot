@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getSession } from 'next-auth/react';
+import { getServerSession } from 'next-auth/next'; // Changed from getSession
+import { authOptions } from '../../pages/api/auth/[...nextauth]'; // Import authOptions
 import dbConnect from '../../lib/mongodb';
 import Cart, {CartItem} from '../../models/Cart';
 import Product from '../../models/Product';
@@ -7,7 +8,8 @@ import mongoose from 'mongoose';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await dbConnect();
-  const session = await getSession({ req });
+  // Changed from getSession({ req }) to getServerSession(req, res, authOptions)
+  const session = await getServerSession(req, res, authOptions); 
 
   if (!session || !session.user?.id) {
     return res.status(401).json({ message: 'Authentication required' });
