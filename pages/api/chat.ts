@@ -11,6 +11,7 @@ import Order from '../../models/Order';
 import ChatHistory from '../../models/ChatHistory';
 import mongoose from 'mongoose';
 
+
 // Initialize GoogleGenerativeAI client
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!);
 
@@ -23,6 +24,7 @@ interface IProduct {
     category: string;
     sizes: number[];
 }
+
 
 // Define a new type alias that correctly represents a Mongoose document with an _id.
 // This avoids conflict with the imported 'ICart' and resolves the type error.
@@ -169,7 +171,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const extractedSize: number | null = sizeMatch ? parseInt(sizeMatch[2], 10) : null;
         return [extractedProductName, extractedSize];
     }
-    
+
     // START: New LLM-first intent detection logic.
 
     try {
@@ -177,10 +179,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const initialPrompt = `You are an AI e-commerce chatbot for a shoe store. Your primary goal is to help users find and purchase shoes.
         When a user asks to "show products" or "browse shoes" (e.g., "Show me running shoes", "Do you have casual shoes?", "Browse sneakers"), you MUST respond by listing 3 relevant products from the available products below. For each product, include its name, price, and available sizes. Do NOT say you cannot show images.
         When asked to add an item to the cart, respond with "I've added the [Product Name] in size [Size] to your cart." If size is missing, ask for it.
-        When asked to remove an item, respond with "I've removed the [Product Name] in size [Size] from your cart." If size is missing, ask for it.
+        When asked to remove an item, respond with "I've removed the [Product Name] in size [Size] from your cart." If cart is already empty then tell user the cart is empty. If size is missing, ask for it.
         When asked to see the cart, show the items in the user's cart in a list.
         When asked to checkout, you should first ask for a confirmation: "Would you like to proceed with placing this order?".
-        Respond in a helpful and concise manner. If you need more information, ask for it.
+        Respond in a helpful and concise manner. If you need more information, ask for it. If user ask for showing previous orders, then you have to show their orders.
         Available products (for reference, do not list all unless asked to browse a category):
         ${(await Product.find({}) as IProduct[]).map(p => `${p.name} (Category: ${p.category}, Sizes: ${p.sizes.join(',')})`).join('\n')}
         `;
@@ -205,7 +207,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const lowerCaseResponse = actionResponse.toLowerCase();
     const [extractedProductName, extractedSize] = extractProductFromMessage(actionResponse);
     let newResponse = actionResponse;
-    
+
     if (lowerCaseResponse.includes('added') && extractedProductName && extractedSize) {
         const product = allProducts.find(p => p.name.toLowerCase().includes(extractedProductName.toLowerCase()));
         if (product) {
@@ -215,6 +217,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         } else {
             console.error(`Product '${extractedProductName}' not found after LLM response.`);
         }
+
+
     } else if (lowerCaseResponse.includes('removed') && extractedProductName && extractedSize) {
         const product = allProducts.find(p => p.name.toLowerCase().includes(extractedProductName.toLowerCase()));
         if (product) {
@@ -224,6 +228,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         } else {
             console.error(`Product '${extractedProductName}' not found after LLM response.`);
         }
+
     } else if (message.toLowerCase() === 'yes' && chatHistoryDoc.messages.length > 0 && chatHistoryDoc.messages[chatHistoryDoc.messages.length - 2].text.includes('Would you like to proceed with placing this order?')) {
         const currentCart = await Cart.findOne({ userId }).lean() as CartDocument | null;
         if (currentCart && currentCart.items.length > 0) {
@@ -232,11 +237,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 items: currentCart.items,
                 totalAmount: currentCart.items.reduce((total: number, item: CartItem) => total + item.price * item.quantity, 0),
                 status: 'pending',
+
             });
+
+            const cartItemsText = currentCart.items.map(item =>
+                `- ${item.name} (Size: ${item.size}) - Quantity: ${item.quantity} - Price: $${item.price.toFixed(2)}`
+            ).join('\n');
+
+            const totalCost = currentCart.items.reduce((total, item) => total + item.price * item.quantity, 0);
+
+            const orderSummary = `🧾 Your order has been placed!\n${cartItemsText}\nTotal: $${totalCost.toFixed(2)}`;
+
+            chatHistoryDoc.messages.push({
+                role: 'bot',
+                text: orderSummary,
+                timestamp: new Date()
+            });
+
+            await chatHistoryDoc.save();
+
+            await newOrder.save();
             await Cart.findOneAndDelete({ userId: userId });
             const newOrderIdString = newOrder._id.toString();
-            orderId = newOrderIdString; 
+            orderId = newOrderIdString;
             cart = null;
+
+
+
             newResponse = `Thank you for ordering! Your cart has been cleared and your order ID is #${newOrderIdString.slice(-6)}.`;
         } else {
             newResponse = `Your cart is currently empty.`;
@@ -247,14 +274,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             const cartItems = cart.items.map((item: CartItem) =>
                 `- ${item.name} (Size: ${item.size}) - Quantity: ${item.quantity} - Price: $${item.price.toFixed(2)}`
             ).join('\n');
-            newResponse = `Here's what's in your cart:\n${cartItems}\nTotal: $${totalCost.toFixed(2)}`;
+            newResponse = `Here's what's in your cart:\n${cartItems}\nTotal: $${totalCost.toFixed(2)}` + ` and test`;
         } else {
-            newResponse = `Your cart is currently empty.`;
+            newResponse = `Your cart is currently empty but you should add anything.`;
         }
+    } else if (message.toLowerCase().includes('show') && message.toLowerCase().includes('orders')|| message.toLowerCase().includes('show') && message.toLowerCase().includes('order') || lowerCaseResponse.includes('previous orders:')
+    || lowerCaseResponse.includes('order history')) {
+        const previousOrders = await Order.find({ userId }).sort({ createdAt: -1 }).lean();
+        console.log('previous order showing block');
+        console.log(previousOrders);
+        if (previousOrders.length > 0) {
+            const orderHistory = previousOrders.map((order, index) => {
+                const orderItems = order.items.map((item: CartItem) =>
+                    `  • ${item.name} (Size: ${item.size}) x${item.quantity} - $${item.price.toFixed(2)}`
+                ).join('\n');
+                const orderDate = new Date(order.createdAt).toLocaleDateString();
+                return `📦 Order #${index + 1} - Date: ${orderDate}\n${orderItems}\n  Total: $${order.totalAmount.toFixed(2)}`;
+            }).join('\n\n');
+
+            newResponse = `🧾 Your previous orders:\n${orderHistory}`;
+            console.log('Your previous orders.');
+        } else {
+            newResponse = `🧾 You have no previous orders.`;
+            console.log('No previous orders found.');
+        }
+    }else{
+        console.log('say someting valid');
     }
-    
+
     // Update the actionResponse with the new message
     actionResponse = newResponse;
+
+    //console.log('new response: ' + newResponse);
+    //console.log('action response: ' + actionResponse);
 
     chatHistoryDoc.messages.push({ role: 'bot', text: actionResponse, timestamp: new Date() });
     await chatHistoryDoc.save();
